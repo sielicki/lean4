@@ -16,8 +16,8 @@ namespace Lean.Compiler.LCNF
 Recognize a tail-recursive list loop whose `Option` accumulator is only
 returned at the end or replaced by `some head` before the recursive call.
 The original declaration handles the empty list and calls a worker for a
-nonempty list. The worker carries the last element directly and constructs
-`some` only when the loop ends.
+nonempty list. The worker carries and returns the last element directly.
+The original declaration constructs `some` only when its result escapes.
 -/
 private def optionAccumulatorWorker? (decl : Decl .pure) :
     CompilerM (Option (Array (Decl .pure))) := do
@@ -55,13 +55,11 @@ private def optionAccumulatorWorker? (decl : Decl .pure) :
     return none
   let payload ← mkParam `payload payloadType false
   let workerParams := #[list, payload]
-  let workerType ← mkForallParams workerParams optionType
-  let finalSome ← mkLetDecl `finalSome optionType
-    (.const ``Option.some [] #[someTypeArg, .fvar payload.fvarId])
-  let recWork ← mkLetDecl `recResult optionType
+  let workerType ← mkForallParams workerParams payloadType
+  let recWork ← mkLetDecl `recResult payloadType
     (.const workerName [] #[.fvar tail.fvarId, .fvar head.fvarId])
-  let workerCode : Code .pure := .cases ⟨``List, optionType, list.fvarId, #[
-    .alt ``List.nil #[] (.let finalSome (.return finalSome.fvarId)),
+  let workerCode : Code .pure := .cases ⟨``List, payloadType, list.fvarId, #[
+    .alt ``List.nil #[] (.return payload.fvarId),
     .alt ``List.cons consParams (.let recWork (.return recWork.fvarId))
   ]⟩
   let worker : Decl .pure := {
@@ -73,16 +71,60 @@ private def optionAccumulatorWorker? (decl : Decl .pure) :
     inlineAttr? := none
   }
 
-  let wrapperResult ← mkLetDecl `result optionType
+  let wrapperResult ← mkLetDecl `result payloadType
     (.const workerName [] #[.fvar tail.fvarId, .fvar head.fvarId])
+  let wrapperSome ← mkLetDecl `someResult optionType
+    (.const ``Option.some [] #[someTypeArg, .fvar wrapperResult.fvarId])
   let wrapperCode : Code .pure := .cases ⟨``List, optionType, list.fvarId, #[
     .alt ``List.nil #[] (.return acc.fvarId),
-    .alt ``List.cons consParams (.let wrapperResult (.return wrapperResult.fvarId))
+    .alt ``List.cons consParams
+      (.let wrapperResult (.let wrapperSome (.return wrapperSome.fvarId)))
   ]⟩
   let wrapper := { decl with value := .code wrapperCode, recursive := false }
   worker.saveMono
   wrapper.saveMono
   return some #[worker, wrapper]
+
+private def consumedOptionResult? (decl : Decl .pure) :
+    CompilerM (Option (Decl .pure)) := do
+  let .code (.let noneDecl (.let callDecl (.cases cases))) := decl.value | return none
+  let .const ``Option.none [] #[_] := noneDecl.value | return none
+  let .const callee [] #[.fvar xs, .fvar initial] := callDecl.value | return none
+  unless initial == noneDecl.fvarId do return none
+  let .app (.const ``Option _) payloadType := noneDecl.type | return none
+  let workerName := callee ++ `_optionAccumulatorWorker
+  let some ⟨.pure, worker⟩ ← getDecl? workerName | return none
+  let #[list, payload] := worker.params | return none
+  let .code (.cases workerCases) := worker.value | return none
+  let #[.alt ``List.nil #[] (.return workerNil),
+      .alt ``List.cons #[workerHead, workerTail]
+        (.let workerCall (.return workerResult))] := workerCases.alts | return none
+  let .const workerCallee [] #[.fvar callTail, .fvar callHead] := workerCall.value
+    | return none
+  unless worker.recursive && workerCases.typeName == ``List &&
+      workerCases.discr == list.fvarId && workerCases.resultType == payloadType &&
+      workerNil == payload.fvarId && workerCallee == workerName &&
+      callTail == workerTail.fvarId && callHead == workerHead.fvarId &&
+      workerResult == workerCall.fvarId do return none
+  unless list.type == mkApp (mkConst ``List) payloadType &&
+      payload.type == payloadType && callDecl.type == mkApp (mkConst ``Option) payloadType &&
+      cases.typeName == ``Option && cases.discr == callDecl.fvarId &&
+      cases.resultType == payloadType do return none
+  let #[.alt ``Option.none #[] nilCode, .alt ``Option.some #[value] someCode] := cases.alts
+    | return none
+  let .return someResult := someCode | return none
+  unless someResult == value.fvarId && value.type == payloadType do return none
+  let head ← mkParam `head payloadType false
+  let tail ← mkParam `tail list.type false
+  let result ← mkLetDecl `result payloadType
+    (.const workerName [] #[.fvar tail.fvarId, .fvar head.fvarId])
+  let code : Code .pure := .cases ⟨``List, payloadType, xs, #[
+    .alt ``List.nil #[] nilCode,
+    .alt ``List.cons #[head, tail] (.let result (.return result.fvarId))
+  ]⟩
+  let replacement := { decl with value := .code code }
+  replacement.saveMono
+  return some replacement
 
 private def runOptionAccumulatorWorker (decls : Array (Decl .pure)) :
     CompilerM (Array (Decl .pure)) := do
@@ -90,9 +132,9 @@ private def runOptionAccumulatorWorker (decls : Array (Decl .pure)) :
     let replacement ← optionAccumulatorWorker? decl
     match replacement with
     | some workerAndWrapper => return result ++ workerAndWrapper
-    | none => return result.push decl
+    | none => return result.push ((← consumedOptionResult? decl).getD decl)
 
-/-- Remove intermediate `Option.some` values from a simple tail-recursive list loop. -/
+/-- Carry a simple list loop's `Option` accumulator as its payload. -/
 def optionAccumulatorWorker : Pass where
   name := `optionAccumulatorWorker
   phase := .mono

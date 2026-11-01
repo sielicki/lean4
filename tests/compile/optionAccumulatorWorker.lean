@@ -12,23 +12,23 @@ public section
 set_option compiler.check true
 
 /--
-trace: [Compiler.saveMono] size: 5
-    def lastUInt8._optionAccumulatorWorker x.1 payload : Option UInt8 :=
-      cases x.1 : Option UInt8
+trace: [Compiler.saveMono] size: 4
+    def lastUInt8._optionAccumulatorWorker x.1 payload : UInt8 :=
+      cases x.1 : UInt8
       | List.nil =>
-        let finalSome := some ◾ payload;
-        return finalSome
+        return payload
       | List.cons head.2 tail.3 =>
         let recResult := lastUInt8._optionAccumulatorWorker tail.3 head.2;
         return recResult
-[Compiler.saveMono] size: 4
+[Compiler.saveMono] size: 5
     def lastUInt8 x.1 x.2 : Option UInt8 :=
       cases x.1 : Option UInt8
       | List.nil =>
         return x.2
       | List.cons head.3 tail.4 =>
         let result := lastUInt8._optionAccumulatorWorker tail.4 head.3;
-        return result
+        let someResult := some ◾ result;
+        return someResult
 -/
 #guard_msgs in
 set_option trace.Compiler.saveMono true in
@@ -57,23 +57,23 @@ def lastChar : List Char → Option Char → Option Char
   | x :: xs, _ => lastChar xs (some x)
 
 /--
-trace: [Compiler.saveMono] size: 5
-    def lastFloat._optionAccumulatorWorker x.1 payload : Option Float :=
-      cases x.1 : Option Float
+trace: [Compiler.saveMono] size: 4
+    def lastFloat._optionAccumulatorWorker x.1 payload : Float :=
+      cases x.1 : Float
       | List.nil =>
-        let finalSome := some ◾ payload;
-        return finalSome
+        return payload
       | List.cons head.2 tail.3 =>
         let recResult := lastFloat._optionAccumulatorWorker tail.3 head.2;
         return recResult
-[Compiler.saveMono] size: 4
+[Compiler.saveMono] size: 5
     def lastFloat x.1 x.2 : Option Float :=
       cases x.1 : Option Float
       | List.nil =>
         return x.2
       | List.cons head.3 tail.4 =>
         let result := lastFloat._optionAccumulatorWorker tail.4 head.3;
-        return result
+        let someResult := some ◾ result;
+        return someResult
 -/
 #guard_msgs in
 set_option trace.Compiler.saveMono true in
@@ -86,23 +86,23 @@ def lastFloat32 : List Float32 → Option Float32 → Option Float32
   | x :: xs, _ => lastFloat32 xs (some x)
 
 /--
-trace: [Compiler.saveMono] size: 5
-    def lastString._optionAccumulatorWorker x.1 payload : Option String :=
-      cases x.1 : Option String
+trace: [Compiler.saveMono] size: 4
+    def lastString._optionAccumulatorWorker x.1 payload : String :=
+      cases x.1 : String
       | List.nil =>
-        let finalSome := some ◾ payload;
-        return finalSome
+        return payload
       | List.cons head.2 tail.3 =>
         let recResult := lastString._optionAccumulatorWorker tail.3 head.2;
         return recResult
-[Compiler.saveMono] size: 4
+[Compiler.saveMono] size: 5
     def lastString x.1 x.2 : Option String :=
       cases x.1 : Option String
       | List.nil =>
         return x.2
       | List.cons head.3 tail.4 =>
         let result := lastString._optionAccumulatorWorker tail.4 head.3;
-        return result
+        let someResult := some ◾ result;
+        return someResult
 -/
 #guard_msgs in
 set_option trace.Compiler.saveMono true in
