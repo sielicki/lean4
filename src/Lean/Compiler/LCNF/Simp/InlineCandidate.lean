@@ -61,6 +61,10 @@ def inlineCandidate? (e : LetValue .pure) : SimpM (Option InlineCandidateInfo) :
     let shouldInline : SimpM Bool := do
       if !decl.inlineIfReduceAttr && decl.recursive then return false
       if mustInline then return true
+      -- Expose `Option` cases so a locally constructed `some` can be sunk past the comparison.
+      if decl.name == ``instBEqOption.beq &&
+          (← args.anyM fun arg => liftM arg.isConstructorApp) then
+        return true
       /-
       We don't inline instances tagged with `[inline]/[always_inline]/[inline_if_reduce]` at the base phase.
       We assume that at the base phase these annotations are for the instance methods that will be lambda lifted during the base phase.
