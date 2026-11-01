@@ -206,7 +206,7 @@ def collect (paramsInfo : Array SpecParamInfo) (args : Array (Arg .pure)) :
       match paramInfo with
       | .other =>
         argMask := argMask.push none
-      | .fixedNeutral | .user | .fixedInst .. | .fixedHO =>
+      | .fixedNeutral | .fixedScalar | .user | .fixedInst .. | .fixedHO =>
         argMask := argMask.push (some arg)
         Closure.collectArg arg
     return argMask
@@ -254,6 +254,11 @@ def shouldSpecialize (specEntry : SpecEntry) (args : Array (Arg .pure)) : Specia
     match paramInfo with
     | .other => pure ()
     | .fixedNeutral => pure () -- If we want to monomorphize types such as `Array`, we need to change here
+    | .fixedScalar =>
+      if !specEntry.alreadySpecialized &&
+          (arg matches .type (.const ``UInt64 _) | .type (.const ``USize _) |
+            .type (.const ``Float _) | .type (.const ``Float32 _)) then
+        return true
     | .fixedInst true => pure ()  -- weak: don't trigger specialization on its own
     | .fixedInst false | .user => if ← isGround arg then return true
     | .fixedHO => if ← hoCheck arg then return true
@@ -417,6 +422,8 @@ mutual
       trace[Compiler.specialize.step] "cached: {declName}"
       return some (.const declName usNew argsNew)
     else
+      if declName.isPrefixOf (← read).declName && hasSpecializationMarker (← read).declName then
+        return none
       let specDecl ← mkSpecDecl decl us argMask params decls levelParamsNew
       let parentMask ← argsNew.mapM
         fun

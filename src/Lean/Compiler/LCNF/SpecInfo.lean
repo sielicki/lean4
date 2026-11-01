@@ -45,13 +45,16 @@ inductive SpecParamInfo where
   Parameter is not going to be specialized.
   -/
   | other
+  -- Keep new constructors after existing ones: stage0 serializes these tags into imported modules.
+  /-- A fixed type parameter carried as a direct value through a recursive function. -/
+  | fixedScalar
   deriving Inhabited, Repr
 
 namespace SpecParamInfo
 
 @[inline]
 def causesSpecialization : SpecParamInfo → Bool
-  | .fixedInst false | .fixedHO | .user => true
+  | .fixedInst false | .fixedHO | .fixedScalar | .user => true
   | .fixedInst true | .fixedNeutral | .other => false
 
 end SpecParamInfo
@@ -62,6 +65,7 @@ instance : ToMessageData SpecParamInfo where
     | .fixedInst true => "W"
     | .fixedHO => "H"
     | .fixedNeutral => "N"
+    | .fixedScalar => "S"
     | .user => "U"
     | .other => "O"
 
@@ -181,6 +185,11 @@ private def hasFwdDeps (decl : Decl .pure) (paramsInfo : Array SpecParamInfo) (j
         return true
   return false
 
+def hasSpecializationMarker : Name → Bool
+  | .str parent part => part == "_at_" || hasSpecializationMarker parent
+  | .num parent _ => hasSpecializationMarker parent
+  | .anonymous => false
+
 /--
 Compute specialization information for `decls`. We assume that `decls` contains a full SCC of
 computationally relevant declarations. Furthermore this function takes:
@@ -212,7 +221,11 @@ def computeSpecEntries (decls : Array (Decl .pure)) (autoSpecialize : Name → O
           else if isNoSpecType (← getEnv) param.type then
             pure .other
           else if isTypeFormerType param.type then
-            pure .fixedNeutral
+            pure <| if decl.recursive && !hasSpecializationMarker decl.name &&
+                decl.params.any (fun p => p.type == .fvar param.fvarId) then
+              .fixedScalar
+            else
+              .fixedNeutral
           else if (← isArrowClass? param.type).isSome then
             pure (.fixedInst (weak := isWeakSpecType (← getEnv) param.type))
           /-
@@ -226,6 +239,8 @@ def computeSpecEntries (decls : Array (Decl .pure)) (autoSpecialize : Name → O
             pure .other
         paramsInfo := paramsInfo.push info
         pure ()
+      if paramsInfo.any (fun i => i matches .fixedInst .. | .fixedHO | .user) then
+        paramsInfo := paramsInfo.map fun i => if i matches .fixedScalar then .fixedNeutral else i
       declsInfo := declsInfo.push paramsInfo
   if declsInfo.any fun paramsInfo => paramsInfo.any SpecParamInfo.causesSpecialization then
     let m := mkFixedParamsMap decls
